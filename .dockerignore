@@ -1,0 +1,19 @@
+# Ignorar dependencias locales
+node_modules
+dist
+
+# Archivos de logs
+*.log
+
+# Docker y archivos de configuración específicos
+Dockerfile
+docker-compose.yml
+
+# Archivos de control de versiones
+.git
+.gitignore
+
+# Otros
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
