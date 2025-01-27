@@ -1,16 +1,18 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-
 import { CalculateFeeDto, FeeDto } from '../dto/__index';
 import { PaypalConfigService } from '../../paypal/services/paypal-config.service';
 import { ApiLegalandService } from '../../api-legaland/services/api-legaland.service';
 import { UtilsService } from '../../utils/services/utils.service';
 import { PaypalFeeService } from '../../paypal/services/paypal-fee.service';
 import { ExchangeService } from '../../exchange/services/exchange.service';
+import {LegalandApiRepository} from "../../infra/legaland/legalandApiRepository"
 import { ConfigType } from '@nestjs/config';
 import { config } from 'src/config';
+import * as moment from 'moment-timezone'; 
 
 @Injectable()
 export class FeesService {
+  // Herramientas modulos
   constructor(
     @Inject(config.KEY)
     private readonly configuration: ConfigType<typeof config>,
@@ -18,6 +20,7 @@ export class FeesService {
     private readonly paypalFeeService: PaypalFeeService,
     private readonly exchangeService: ExchangeService,
     private readonly apiLegalandService: ApiLegalandService,
+    private readonly legalandApiRepository: LegalandApiRepository,
     private readonly utilsService: UtilsService
   ) { }
 
@@ -27,7 +30,7 @@ export class FeesService {
 
     const isCurrencySoles = calculateFeeDto.currency === '604';
 
-    // Se establece el monto minimo y maximo de acuerdo a la moneda (soles o usd)
+    // Se establece el monto minimo y maximo de acuerdo a la moneda (soles o usd)node
     const minAmount = isCurrencySoles ? paypalConfig[0].min_amount_pen : paypalConfig[0].min_amount_usd;
     const maxAmount = isCurrencySoles ? paypalConfig[0].max_amount_pen : paypalConfig[0].max_amount_usd;
 
@@ -43,8 +46,6 @@ export class FeesService {
 
     const paypalFee = await this.paypalFeeService.findOne({ type: 'personas' });
     const feeToPerson = isCurrencySoles ? paypalFee.currency.soles : paypalFee.currency.dollars;
-
-
 
     console.log(paypalConfig);
 
@@ -87,14 +88,13 @@ export class FeesService {
     return mockData;
   }
 
-
   /**
- * Obtención del tipo de cambio para compra.
- * @param {Object} data
- * @param {number} data.amount Monto
- * @param {boolean} data.isCurrencySoles True para moneda SOLES
- * @returns {number} Retorna el tipo de cambio menos el Spread por compra
- */
+   * Obtención del tipo de cambio para compra.
+   * @param {Object} data
+   * @param {number} data.amount Monto
+   * @param {boolean} data.isCurrencySoles True para moneda SOLES
+   * @returns {number} Retorna el tipo de cambio menos el Spread por compra
+   */
   async getExchangeToBuy({
     amount,
     isCurrencySoles,
@@ -105,7 +105,7 @@ export class FeesService {
     console.log(`Inicia getExchangeToBuy: busca valores el tipo de cambio venta, data: ${JSON.stringify({ data: { amount, isCurrencySoles } })}`);
     const activateSpreadPersons = this.configuration.params.exchangeActivateSpreadPersons;
     
-    /* if (activateSpreadPersons && isCurrencySoles) {
+    if (activateSpreadPersons && isCurrencySoles) {
       try {
         const exchangeRateDate = await this.exchangeService.findOneLasDocumentByProduct('Paypal');
         console.log(
@@ -116,6 +116,7 @@ export class FeesService {
             date: exchangeRateDate.date,
           })}`,
         );
+        
         if (exchangeRateDate.range_spread_enable && exchangeRateDate.data_to_range.length !== 0) {
           try {
             const dataToCurrency = exchangeRateDate.data_to_range.find((dataCurrency) => dataCurrency.detail === 'soles');
@@ -154,8 +155,55 @@ export class FeesService {
       }
     }
     const objXR = await this.tipoCambio();
-    return parseFloat(objXR.valor); */
-    return 3.750000;
+    return (objXR.valor);
   }
+
+  /**
+   * Obtiene el tipo de cambio actual desde Legaland API.
+   * @returns {Promise<{ valor: number; date: string }>}
+   */
+ async tipoCambio(): Promise<{ valor: number; date: string }> {
+  console.log('Inicia tipoCambio: Legaland');
+  let valor = 0;
+  let date = "";
+  let data;
+
+  try {
+    // Cambiar para que `date` sea un objeto `Date` en lugar de un string
+    const dateObj = moment().tz('America/Lima').toDate(); // Esto te da un objeto Date
+    console.log('fecha tipo de cambio 1-->', dateObj);
+    
+    data = await this.legalandApiRepository.getExchangeRate(dateObj);  // Pasa un Date
+    console.log('respuesta -->', data);
+
+    if (data === null) {
+      console.log('no hay tipo de cambio 1, fecha -->' + dateObj);
+      const dateObj2 = moment().tz('America/Lima').subtract(1, 'd').toDate();
+      data = await this.legalandApiRepository.getExchangeRate(dateObj2);  // Pasa un Date
+      console.log('fecha tipo de cambio 2 -->', dateObj2);
+      
+      if (data === null) {
+        console.log('no hay tipo de cambio 2, fecha -->' + dateObj2);
+        const dateObj3 = moment().tz('America/Lima').subtract(2, 'd').toDate();
+        data = await this.legalandApiRepository.getExchangeRate(dateObj3);  // Pasa un Date
+        console.log('fecha tipo de cambio 3 -->', dateObj3);
+        console.log('resultado tipo de cambio 3 -->', data);
+      }
+    } else {
+      console.log('si hay data');
+    }
+
+    valor = data.buy;
+    // Convertir el objeto `Date` de nuevo a un string si necesitas el formato 'yyyyMMDD' para retornar
+    date = moment(dateObj).format('yyyyMMDD'); 
+
+  } catch (error) {
+    valor = 0;
+    console.log('error al obtener tipo de cambio-->', error);
+  }
+
+  console.log('resultado final -->', { valor, date }, data);
+  return { valor, date };
+}
 
 }
