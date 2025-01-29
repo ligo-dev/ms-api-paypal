@@ -69,11 +69,12 @@ export class FeesService {
         let markupPercentage = 0;
 
         for (const range of fee) {
+          // calcula el rango de minimo y maximo
             const isWithinRange = range.minAmount <= calculateFeeDto.amount && range.maxAmount >= calculateFeeDto.amount;
 
             if (isCurrencySoles && isWithinRange) {
                 console.log('Evaluando rango para soles', range);
-
+                // Si la fórmula está activa, ajusta la tarifa y el tipo de cambio de acuerdo con el markup calculado. Si la fórmula no está activa, usa una tarifa fija
                 if (range.formula) {
                     calculatedMarkup = 1 - ((calculateFeeDto.amount - 6) * feeToPerson) / (calculateFeeDto.amount - range.fee) / feeToPerson;
                     markupPercentage = calculatedMarkup * 100;
