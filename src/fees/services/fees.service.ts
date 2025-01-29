@@ -2,6 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { CalculateFeeDto, FeeDto } from '../dto/__index';
 import { PaypalConfigService } from '../../paypal/services/paypal-config.service';
 import { ApiLegalandService } from '../../api-legaland/services/api-legaland.service';
+import { ApiValidation } from '../../api-validation/services/api-validation.service';
 import { UtilsService } from '../../utils/services/utils.service';
 import { PaypalFeeService } from '../../paypal/services/paypal-fee.service';
 import { ExchangeService } from '../../exchange/services/exchange.service';
@@ -19,76 +20,214 @@ export class FeesService {
     private readonly paypalFeeService: PaypalFeeService,
     private readonly exchangeService: ExchangeService,
     private readonly apiLegalandService: ApiLegalandService,
+    private readonly apiValidation: ApiValidation,
     private readonly utilsService: UtilsService
   ) { }
   //feeComission40
   async calculateFee(calculateFeeDto: CalculateFeeDto): Promise<FeeDto> {
-    const paypalConfigList = await this.paypalConfigService.findAll();
-    const paypalConfig = paypalConfigList[0];
+    try {
+        const paypalConfigList = await this.paypalConfigService.findAll();
+        const paypalConfig = paypalConfigList[0];
 
-    const isCurrencySoles = calculateFeeDto.currency === '604';
+        const isCurrencySoles = calculateFeeDto.currency === '604';
 
-    // Se establece el monto minimo y maximo de acuerdo a la moneda (soles o usd)node
-    const minAmount = isCurrencySoles ? paypalConfig[0].min_amount_pen : paypalConfig[0].min_amount_usd;
-    const maxAmount = isCurrencySoles ? paypalConfig[0].max_amount_pen : paypalConfig[0].max_amount_usd;
+        // Se establece el monto mínimo y máximo de acuerdo a la moneda (soles o USD)
+        const minAmount = isCurrencySoles ? paypalConfig.min_amount_pen : paypalConfig.min_amount_usd;
+        const maxAmount = isCurrencySoles ? paypalConfig.max_amount_pen : paypalConfig.max_amount_usd;
 
-    const messageValidateAmount = this.utilsService.validateAmount(calculateFeeDto.amount, minAmount, maxAmount);
-    if (!messageValidateAmount) {
-      throw new BadRequestException(messageValidateAmount);
-    }
+        const messageValidateAmount = this.utilsService.validateAmount(calculateFeeDto.amount, minAmount, maxAmount);
+        if (messageValidateAmount) {
+            throw new BadRequestException(messageValidateAmount);
+        }
 
-    const client = await this.apiLegalandService.getUserById(calculateFeeDto.clientId);
-    if (!client) {
-      throw new NotFoundException(`Cliente no encontrado con id: ${calculateFeeDto.clientId}`);
-    }
+        const client = await this.apiLegalandService.getUserById(calculateFeeDto.clientId);
+        if (!client) {
+            throw new NotFoundException(`Cliente no encontrado con id: ${calculateFeeDto.clientId}`);
+        }
 
-    const paypalFee = await this.paypalFeeService.findOne({ type: 'personas' });
-    const fee = isCurrencySoles ? paypalFee.currency.soles : paypalFee.currency.dollars;
+        const paypalFee = await this.paypalFeeService.findOne({ type: 'personas' });
+        const fee = isCurrencySoles ? paypalFee.currency.soles : paypalFee.currency.dollars;
 
-    const feeToPerson = await this.getExchangeToBuy({amount: calculateFeeDto.amount,isCurrencySoles})
+        const feeToPerson = await this.getExchangeToBuy({ amount: calculateFeeDto.amount, isCurrencySoles });
 
+        console.log('Exchange rate -->', feeToPerson);
+        if (feeToPerson === 0) {
+            console.error({
+                status: 0,
+                errors: [{ field: 'general', message: 'Ocurrió un problema, por favor intente nuevamente' }],
+                code: 422,
+                data: null,
+                date: moment().tz("America/Lima").format('YYYY-MM-DD HH:mm:ss'),
+            });
+            return null;
+        }
 
+        let calculatedMarkup = 0;
+        let finalExchangeRate = feeToPerson;
+        let finalFeeValue = 0;
+        let finalFeeAmount = 0;
+        let markupPercentage = 0;
+
+        for (const range of fee) {
+            const isWithinRange = range.minAmount <= calculateFeeDto.amount && range.maxAmount >= calculateFeeDto.amount;
+
+            if (isCurrencySoles && isWithinRange) {
+                console.log('Evaluando rango para soles', range);
+
+                if (range.formula) {
+                    calculatedMarkup = 1 - ((calculateFeeDto.amount - 6) * feeToPerson) / (calculateFeeDto.amount - range.fee) / feeToPerson;
+                    markupPercentage = calculatedMarkup * 100;
+
+                    if (markupPercentage > range.markUpMax) {
+                        finalFeeAmount = range.fee;
+                        finalFeeValue = range.fee;
+                        finalExchangeRate = feeToPerson - (range.markUpMax * feeToPerson) / 100;
+                    } else if (markupPercentage < range.MarkUpMin) {
+                        finalFeeAmount = range.fee;
+                        finalFeeValue = range.fee;
+                        finalExchangeRate = feeToPerson - (range.MarkUpMin * feeToPerson) / 100;
+                    } else {
+                        finalFeeAmount = range.fee;
+                        finalFeeValue = range.fee;
+                        finalExchangeRate = feeToPerson - calculatedMarkup * feeToPerson;
+                    }
+                } else {
+                    finalFeeAmount = range.fee;
+                    finalFeeValue = range.fee;
+                    finalExchangeRate = feeToPerson;
+                }
+            } else if (!isCurrencySoles && isWithinRange) {
+                finalFeeAmount = range.fee;
+                finalFeeValue = range.fee;
+                finalExchangeRate = feeToPerson;
+            }
+        }
+
+        console.log(`Cálculos --> ${JSON.stringify({ finalFee: finalFeeValue, finalFx: finalExchangeRate, finalFeeAmount, feeToPerson })}`);
+
+        const secuencial = 123;
+        const newN = String(secuencial).padStart(8, '0');
+        console.log('Secuencial -->', newN);
+
+        let incentivoModule: any = {};
+        try {
+            incentivoModule = await this.apiValidation.getIncentive({
+                userDocType: Number(client.tipo_doc_ident),
+                userDocNumber: client.num_doc_ident,
+                module: 'Paypal',
+            }) || {};
+        } catch (error) {
+            console.error('Error obteniendo incentivo:', error);
+        }
+
+        const isUSD = calculateFeeDto.currency === '840';
+        const usedPaypalFee = isUSD ? (paypalConfig.enable_fee_new_paypal === false ? 0 : calculateFeeDto.amount * 0.01) : 0;
+
+        const configGeneral = await this.paypalConfigService.findAll();
+        console.log('DB configGeneral', configGeneral);
+
+        // ACA ME LLEGA UN BOLEANO O UN VALOR NUMERICO
+        //const porcentualIGV = configGeneral[0]?.porcentual_promotional_IGV || 0.18;
+        // PARA PROSEGUIR
+        const porcentualIGV = configGeneral[0]?.porcentual_promotional_IGV === true ? 0.18 : 0;
+
+        console.log('Porcentual IGV usado', porcentualIGV);
+
+        const divisorCalculateSalesValue = 1 + porcentualIGV || 1.18;
+        console.log('Divisor de cálculo de IGV para Paypal', divisorCalculateSalesValue);
+
+        const salesValue = this.utilsService.calculatePorcentualTruncated(finalFeeValue, 1 / divisorCalculateSalesValue);
+        console.log('Valor de venta usado', salesValue);
+
+        //const porcentualPromotionalIGV = paypalConfig.porcentual_promotional_IGV || 0;
+        const porcentualPromotionalIGV = configGeneral[0]?.porcentual_promotional_IGV === true ? 0.18 : 0;
+
+        console.log('Porcentual IGV promocional para Paypal', porcentualPromotionalIGV);
+
+        const feeIGVPromotional = this.utilsService.calculatePorcentualTruncated(salesValue, porcentualIGV * porcentualPromotionalIGV);
+        const netFee = finalFeeValue - feeIGVPromotional;
+        console.log('Neto de la tarifa con IGV', netFee);
+
+        const feeIGV = this.utilsService.calculatePorcentualTruncated(netFee, porcentualIGV);
+        console.log('IGV aplicado a la tarifa', feeIGV);
+
+        const usedFinalFee = isUSD
+            ? parseFloat((netFee + feeIGV).toFixed(6)) + usedPaypalFee
+            : parseFloat((netFee + feeIGV).toFixed(6));
+
+        const responseData = {
+            fee: parseFloat(finalFeeAmount.toFixed(6)),
+            fee_IGV: feeIGV,
+            fee_IGV_promotional: feeIGVPromotional,
+            data_fee: {
+                porcentual_IGV: porcentualIGV,
+                divisor_calculate_sales_value: divisorCalculateSalesValue,
+                porcentual_promotional_IGV: porcentualPromotionalIGV,
+                net_fee: netFee,
+            },
+            minimum_amount: minAmount,
+            maximum_amount: maxAmount,
+            currency: 'USD',
+            exchange_rate: parseFloat(finalExchangeRate.toFixed(6)),
+            fee_percent: isCurrencySoles ? parseFloat(calculatedMarkup.toFixed(6)) : parseFloat(finalFeeAmount.toFixed(6)),
+            fee_amount: parseFloat(finalFeeAmount.toFixed(6)),
+            final_fee: usedFinalFee,
+            paypal_fee: usedPaypalFee,
+            fees: this.utilsService.newObjFees(fee),
+        };
+
+        console.log('Response --->', incentivoModule, responseData);
+
+        const mockData = {
+          fee: 123.456789,
+          fee_2: 123.456789,
+          fee_IGV: 18.00,
+          fee_IGV_promotional: 10.50,
+          data_fee: {
+            fee_IGV: 18.00,
+            fee_IGV_promotional: 10.50,
+            porcentual_IGV: 0.18,
+            divisor_calculate_sales_value: 1.18,
+            porcentual_promotional_IGV: 0.10,
+            net_fee: 105.45
+          },
+          minimum_amount: 50.00,
+          maximum_amount: 5000.00,
+          minimum_amount_2: 50.00,
+          maximum_amount_2: 5000.00,
+          currency: 'USD',
+          exchange_rate: 3.750000,
+          exchange_rate_2: 3.750000,
+          fee_percent: 0.035678,
+          fee_amount: 123.456789,
+          final_fee: 130.00,
+          paypal_fee: 4.99,
+          incentivoModule: {
+            active: true,
+            discount: 5.00,
+            type: 'percentage'
+          },
+          fees: {
+            processing_fee: 2.99,
+            service_fee: 1.50,
+            tax_fee: 0.75
+          }
+        };
     
-    console.log(paypalConfig);
+        return mockData;
+        // return responseData;
+    } catch (error) {
+        console.error('Error en cálculo de tarifa -->', error);
+        return {
+            status: 0,
+            errors: [{ field: 'general', message: 'Ocurrió un problema, por favor intente nuevamente' }],
+            code: 422,
+            data: null,
+            date: moment().tz("America/Lima").format('YYYY-MM-DD HH:mm:ss'),
+        } as any;
+    }
+}
 
-    const mockData = {
-      fee: 123.456789,
-      fee_2: 123.456789,
-      fee_IGV: 18.00,
-      fee_IGV_promotional: 10.50,
-      data_fee: {
-        fee_IGV: 18.00,
-        fee_IGV_promotional: 10.50,
-        porcentual_IGV: 0.18,
-        divisor_calculate_sales_value: 1.18,
-        porcentual_promotional_IGV: 0.10,
-        net_fee: 105.45
-      },
-      minimum_amount: 50.00,
-      maximum_amount: 5000.00,
-      minimum_amount_2: 50.00,
-      maximum_amount_2: 5000.00,
-      currency: 'USD',
-      exchange_rate: 3.750000,
-      exchange_rate_2: 3.750000,
-      fee_percent: 0.035678,
-      fee_amount: 123.456789,
-      final_fee: 130.00,
-      paypal_fee: 4.99,
-      incentivoModule: {
-        active: true,
-        discount: 5.00,
-        type: 'percentage'
-      },
-      fees: {
-        processing_fee: 2.99,
-        service_fee: 1.50,
-        tax_fee: 0.75
-      }
-    };
-
-    return mockData;
-  }
 
   /**
    * Obtención del tipo de cambio para compra.

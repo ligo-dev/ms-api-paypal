@@ -10,6 +10,7 @@ import { FeesModule } from './fees/fees.module';
 import { PaypalModule } from './paypal/paypal.module';
 import { ApiLegalandModule } from './api-legaland/api-legaland.module';
 import { ExchangeModule } from './exchange/exchange.module';
+import { ApiValidationModule } from './api-validation/api-validation.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { ExchangeModule } from './exchange/exchange.module';
     PaypalModule,
     ApiLegalandModule,
     ExchangeModule,
+    ApiValidationModule,
   ],
   controllers: [],
   providers: [],
