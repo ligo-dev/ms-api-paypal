@@ -5,7 +5,6 @@ import { ApiLegalandService } from '../../api-legaland/services/api-legaland.ser
 import { UtilsService } from '../../utils/services/utils.service';
 import { PaypalFeeService } from '../../paypal/services/paypal-fee.service';
 import { ExchangeService } from '../../exchange/services/exchange.service';
-import {LegalandApiRepository} from "../../infra/legaland/legalandApiRepository"
 import { ConfigType } from '@nestjs/config';
 import { config } from 'src/config';
 import * as moment from 'moment-timezone'; 
@@ -20,10 +19,9 @@ export class FeesService {
     private readonly paypalFeeService: PaypalFeeService,
     private readonly exchangeService: ExchangeService,
     private readonly apiLegalandService: ApiLegalandService,
-    private readonly legalandApiRepository: LegalandApiRepository,
     private readonly utilsService: UtilsService
   ) { }
-
+  //feeComission40
   async calculateFee(calculateFeeDto: CalculateFeeDto): Promise<FeeDto> {
     const paypalConfigList = await this.paypalConfigService.findAll();
     const paypalConfig = paypalConfigList[0];
@@ -45,8 +43,12 @@ export class FeesService {
     }
 
     const paypalFee = await this.paypalFeeService.findOne({ type: 'personas' });
-    const feeToPerson = isCurrencySoles ? paypalFee.currency.soles : paypalFee.currency.dollars;
+    const fee = isCurrencySoles ? paypalFee.currency.soles : paypalFee.currency.dollars;
 
+    const feeToPerson = await this.getExchangeToBuy({amount: calculateFeeDto.amount,isCurrencySoles})
+
+
+    
     console.log(paypalConfig);
 
     const mockData = {
@@ -173,19 +175,19 @@ export class FeesService {
     const dateObj = moment().tz('America/Lima').toDate(); // Esto te da un objeto Date
     console.log('fecha tipo de cambio 1-->', dateObj);
     
-    data = await this.legalandApiRepository.getExchangeRate(dateObj);  // Pasa un Date
+    data = await this.apiLegalandService.getExchangeRate(dateObj);  // Pasa un Date
     console.log('respuesta -->', data);
 
     if (data === null) {
       console.log('no hay tipo de cambio 1, fecha -->' + dateObj);
       const dateObj2 = moment().tz('America/Lima').subtract(1, 'd').toDate();
-      data = await this.legalandApiRepository.getExchangeRate(dateObj2);  // Pasa un Date
+      data = await this.apiLegalandService.getExchangeRate(dateObj2);  // Pasa un Date
       console.log('fecha tipo de cambio 2 -->', dateObj2);
       
       if (data === null) {
         console.log('no hay tipo de cambio 2, fecha -->' + dateObj2);
         const dateObj3 = moment().tz('America/Lima').subtract(2, 'd').toDate();
-        data = await this.legalandApiRepository.getExchangeRate(dateObj3);  // Pasa un Date
+        data = await this.apiLegalandService.getExchangeRate(dateObj3);  // Pasa un Date
         console.log('fecha tipo de cambio 3 -->', dateObj3);
         console.log('resultado tipo de cambio 3 -->', data);
       }
@@ -194,7 +196,6 @@ export class FeesService {
     }
 
     valor = data.buy;
-    // Convertir el objeto `Date` de nuevo a un string si necesitas el formato 'yyyyMMDD' para retornar
     date = moment(dateObj).format('yyyyMMDD'); 
 
   } catch (error) {

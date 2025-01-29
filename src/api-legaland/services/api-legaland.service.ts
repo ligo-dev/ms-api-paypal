@@ -4,6 +4,8 @@ import { HttpService } from '@nestjs/axios';
 
 import { config } from '../../config';
 import { IUserData } from '../interfaces/user-data.interface';
+import { ExchangeRate } from '../dto/exchangeRateDTO';
+
 
 @Injectable()
 export class ApiLegalandService {
@@ -25,4 +27,11 @@ export class ApiLegalandService {
         const { data } = await this.httpService.axiosRef.get<IUserData>(host);
         return data;
     }
+      async getExchangeRate(date: Date): Promise<ExchangeRate | null> {
+        const host = `${this.apiLegaland}/exchange-rate/${date}`;
+        this.logger.log(`Call ${host}`);
+      
+        const { data } = await this.httpService.axiosRef.get<ExchangeRate>(host);
+        return data ? new ExchangeRate(data) : null;
+      }
 }

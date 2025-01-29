@@ -18,3 +18,4 @@ export class FeesController {
     return this.feesService.calculateFee(calculateFeeDto);
   }
 }
+    
