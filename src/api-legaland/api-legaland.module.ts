@@ -7,4 +7,4 @@ import { HttpModule } from '@nestjs/axios';
   providers: [ApiLegalandService],
   exports: [ApiLegalandService],
 })
-export class ApiLegalandModule {}
+export class ApiLegalandModule { }
