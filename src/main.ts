@@ -1,22 +1,31 @@
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { ConsoleLogger, Logger, ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 
 import { config } from './config';
+import { LoggerMiddleware } from './middlewares/logger.middleware';
+import { Console } from 'console';
 
 async function bootstrap() {
   const { swagger, server, proyect } = config();
+
   
-  const app = await NestFactory.create(AppModule, {
-    logger: ['error', 'warn', 'debug', 'log'],
-  });
+const app = await NestFactory.create(AppModule, {
+  logger: new ConsoleLogger({
+    json: true,
+  }),
+});
+
 
   // Configuración del path context a nivel global
   app.setGlobalPrefix(server.context);
 
   // Habilita la validación global
   app.useGlobalPipes(new ValidationPipe());
+
+    // Aplicar Middleware Globalmente
+  app.use(new LoggerMiddleware().use);
 
   // Configuración de Swagger
   if (swagger.enabled) {

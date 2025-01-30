@@ -22,7 +22,7 @@ export class FeesService {
   ) { }
 
   async calculateFee(calculateFeeDto: CalculateFeeDto): Promise<FeeDto> {
-    const paypalConfigList = await this.paypalConfigService.findAll();
+    /* const paypalConfigList = await this.paypalConfigService.findAll();
     const paypalConfig = paypalConfigList[0];
 
     const isCurrencySoles = calculateFeeDto.currency === '604';
@@ -46,7 +46,7 @@ export class FeesService {
 
 
 
-    console.log(paypalConfig);
+    console.log(paypalConfig); */
 
     const mockData = {
       fee: 123.456789,
