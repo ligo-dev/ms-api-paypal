@@ -10,12 +10,8 @@ import { Console } from 'console';
 async function bootstrap() {
   const { swagger, server, proyect } = config();
 
-  
-const app = await NestFactory.create(AppModule, {
-  logger: new ConsoleLogger({
-    json: true,
-  }),
-});
+
+  const app = await NestFactory.create(AppModule);
 
 
   // Configuración del path context a nivel global
@@ -24,7 +20,7 @@ const app = await NestFactory.create(AppModule, {
   // Habilita la validación global
   app.useGlobalPipes(new ValidationPipe());
 
-    // Aplicar Middleware Globalmente
+  // Aplicar Middleware Globalmente
   app.use(new LoggerMiddleware().use);
 
   // Configuración de Swagger
